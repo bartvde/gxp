@@ -233,7 +233,17 @@ gxp.WMSStylesDialog = Ext.extend(Ext.Container, {
              *  * :class:`gxp.WMSStylesDialog` this component
              *  * ``String`` the name of the currently selected style
              */
-            "saved"            
+            "saved",
+
+            /** api: event[savefailed]
+             *  Fires when a style wasn't successfully saved.
+             *
+             *  Listener arguments:
+             *
+             *  * :class:`gxp.WMSStylesDialog` this component
+             *  * ``String`` the name of the currently selected style
+             */
+            "savefailed"
         );
 
         var defConfig = {
@@ -305,6 +315,7 @@ gxp.WMSStylesDialog = Ext.extend(Ext.Container, {
         this.on({
             "beforesaved": function() { this._saving = true; },
             "saved": function() { delete this._saving; },
+            "savefailed": function() { delete this._saving; },
             "render": function() {
                 gxp.util.dispatch([this.getStyles], function() {
                     this.enable();

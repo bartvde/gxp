@@ -114,6 +114,10 @@ gxp.plugins.GeoServerStyleWriter = Ext.extend(gxp.plugins.StyleWriter, {
                 xmlData: this.target.createSLD({
                     userStyles: [styleName]
                 }),
+                failure: function() {
+                    var target = this.target;
+                    target.fireEvent("savefailed", target, target.selectedStyle.get("name"));
+                },
                 success: styleRec.phantom === true ? function(){
                     Ext.Ajax.request({
                         method: "POST",
@@ -125,6 +129,10 @@ gxp.plugins.GeoServerStyleWriter = Ext.extend(gxp.plugins.StyleWriter, {
                             }
                         },
                         success: callback,
+                        failure: function() {
+                            var target = this.target;
+                            target.fireEvent("savefailed", target, target.selectedStyle.get("name"));
+                        },
                         scope: this
                     });
                 } : callback,
