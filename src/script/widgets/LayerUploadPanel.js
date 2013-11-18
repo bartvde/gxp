@@ -154,7 +154,7 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
             handler: function() {
                 var form = this.getForm();
                 if (form.isValid()) {
-                    if (this._import === undefined) {
+                    if (this._task === undefined) {
                         var fields = form.getFieldValues(),
                             jsonData = {'import': {}};
                         if (fields.workspace) {
@@ -184,7 +184,7 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
                             },
                             scope: this
                         });
-                    } else if (this._task) {
+                    } else {
                         var formData = this.getForm().getFieldValues();
                         // TODO check difference between coverage and featureType
                         var item = {};
