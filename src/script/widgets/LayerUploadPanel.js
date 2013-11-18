@@ -154,33 +154,80 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
             handler: function() {
                 var form = this.getForm();
                 if (form.isValid()) {
-                    var fields = form.getFieldValues(),
-                        jsonData = {'import': {}};
-                    if (fields.workspace) {
-                        jsonData["import"].targetWorkspace = {workspace: {name: fields.workspace}};
+                    if (this._import === undefined) {
+                        var fields = form.getFieldValues(),
+                            jsonData = {'import': {}};
+                        if (fields.workspace) {
+                            jsonData["import"].targetWorkspace = {workspace: {name: fields.workspace}};
+                        }
+                        if (fields.store) {
+                            jsonData["import"].targetStore = {dataStore: {name: fields.store}}
+                        } else if (this.defaultDataStore) {
+                            jsonData["import"].targetStore = {dataStore: {name: this.defaultDataStore}}                        
+                        }
+                        Ext.Ajax.request({
+                            url: this.getUploadUrl(),
+                            method: "POST",
+                            jsonData: jsonData,
+                            success: function(response) {
+                                //this._import = response.getResponseHeader("Location");
+                                var json = Ext.decode(response.responseText);
+                                this._import = json.import.href;
+                                this.optionsFieldset.expand();
+                                form.submit({
+                                    url: this._import + "/tasks",
+                                    waitMsg: this.waitMsgText,
+                                    waitMsgTarget: true,
+                                    reset: true,
+                                    scope: this
+                                });
+                            },
+                            scope: this
+                        });
+                    } else if (this._task) {
+                        var formData = this.getForm().getFieldValues();
+                        // TODO check difference between coverage and featureType
+                        var item = {};
+                        // TODO check how to update title and abstract
+                        item["layer"] = {
+                            title: formData.title || undefined,
+                            "abstract": formData["abstract"] || undefined,
+                            srs: formData.nativeCRS || undefined
+                        };
+                        this.waitMsg = new Ext.LoadMask((this.ownerCt || this).getEl(), {msg: this.processingUploadText});
+                        this.waitMsg.show();
+                        Ext.Ajax.request({
+                            method: "PUT",
+                            url: this._task,
+                            jsonData: item,
+                            success: function() {
+                                delete this._task;
+                                this.finishUpload();
+                            },
+                            failure: function(response) {
+                                this.waitMsg.hide();
+                                var errors = [];
+                                try {
+                                    var json = Ext.decode(response.responseText);
+                                    if (json.errors) {
+                                        for (var i=0, ii=json.errors.length; i<ii; ++i) {
+                                            errors.push({
+                                                id: ~json.errors[i].indexOf('SRS') ? 'nativeCRS' : 'file',
+                                                msg: json.errors[i]
+                                            });
+                                        }
+                                    }
+                                } catch(e) {
+                                    errors.push({
+                                        id: "file",
+                                        msg: response.responseText
+                                    });
+                                }
+                                this.getForm().markInvalid(errors);
+                            },
+                            scope: this
+                        });
                     }
-                    if (fields.store) {
-                        jsonData["import"].targetStore = {dataStore: {name: fields.store}}
-                    } else if (this.defaultDataStore) {
-                        jsonData["import"].targetStore = {dataStore: {name: this.defaultDataStore}}                        
-                    }
-                    Ext.Ajax.request({
-                        url: this.getUploadUrl(),
-                        method: "POST",
-                        jsonData: jsonData,
-                        success: function(response) {
-                            this._import = response.getResponseHeader("Location");
-                            this.optionsFieldset.expand();
-                            form.submit({
-                                url: this._import + "/tasks",
-                                waitMsg: this.waitMsgText,
-                                waitMsgTarget: true,
-                                reset: true,
-                                scope: this
-                            });
-                        },
-                        scope: this
-                    });
                 }
             },
             scope: this
@@ -213,9 +260,8 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
              *
              * Listener arguments:
              * panel - {<gxp.LayerUploadPanel} This form panel.
-             * details - {Object} An object with an "import" property,
-             *     representing a summary of the import result as provided by
-             *     GeoServer's Importer API.
+             * names - {Object} List of layer names that were add. The keys are
+             *     the layer names.
              */
             "uploadcomplete"
         );
@@ -334,6 +380,9 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
                     // with the substring "file" in the type are file based,
                     // and for file-based data stores we want to crate a new
                     // store.
+                    if (json.dataStore && json.dataStore.workspace) {
+                        this.defaultWorkspace = json.dataStore.workspace.name;
+                    }
                     if (json.dataStore && json.dataStore.enabled === true && !/file/i.test(json.dataStore.type)) {
                         this.defaultDataStore = json.dataStore.name;
                         this.dataStore.emptyText = this.defaultDataStoreEmptyText;
@@ -357,7 +406,7 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
     getWorkspacesUrl: function() {
         return this.url + "/workspaces.json";
     },
-    
+
     /** private: method[handleUploadResponse]
      *  TODO: if response includes errors object, this can be removed
      *  Though it should only be removed if the server always returns text/html!
@@ -382,15 +431,11 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
                         if (!task) {
                             success = false;
                             msg = "Unknown upload error";
-                        } else if (!task.items || !task.items.length) {
+                        } else if (task.state === "NO_CRS") {
                             success = false;
-                            msg = "Upload contains no items that can be imported.";
-                        } else if (task.state !== "READY") {
-                            if (!(task.state === "INCOMPLETE" && task.items[0].state === "NO_CRS" && formData.nativeCRS)) {
-                                success = false;
-                                msg = "Source " + task.source.file + " is " + task.state + ": " + task.items[0].state;
-                                break;
-                            }
+                            this._task = task.layer.href;
+                            msg = "Coordinate Reference System (CRS) of source file " + task.data.file + " could not be determined. Please specify manually.";
+                            break;
                         }
                     }
                 }
@@ -400,51 +445,9 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
             // mark the file field as invlid
             records = [{data: {id: "file", msg: msg || this.uploadFailedText}}];
         } else {
-            var itemModified = !!(formData.title || formData["abstract"] || formData.nativeCRS),
-                queue = [];
-            if (itemModified) {
-                this.waitMsg = new Ext.LoadMask((this.ownerCt || this).getEl(), {msg: this.processingUploadText});
-                this.waitMsg.show();
-                // for now we only support a single item (items[0])
-                var resource = task.items[0].resource,
-                    layer = resource.featureType ? "featureType" : "coverage",
-                    item = {id: task.items[0].id, resource: {}};
-                item.resource[layer] = {
-                    title: formData.title || undefined,
-                    "abstract": formData["abstract"] || undefined,
-                    srs: formData.nativeCRS || undefined
-                };
-                Ext.Ajax.request({
-                    method: "PUT",
-                    url: tasks[0].items[0].href,
-                    jsonData: item,
-                    success: this.finishUpload,
-                    failure: function(response) {
-                        this.waitMsg.hide();
-                        var errors = [];
-                        try {
-                            var json = Ext.decode(response.responseText);
-                            if (json.errors) {
-                                for (var i=0, ii=json.errors.length; i<ii; ++i) {
-                                    errors.push({
-                                        id: ~json.errors[i].indexOf('SRS') ? 'nativeCRS' : 'file',
-                                        msg: json.errors[i]
-                                    });
-                                }
-                            }
-                        } catch(e) {
-                            errors.push({
-                                id: "file",
-                                msg: response.responseText
-                            });
-                        }
-                        this.getForm().markInvalid(errors);
-                    },
-                    scope: this
-                });
-            } else {
-                this.finishUpload();
-            }
+            var itemModified = !!(formData.title || formData["abstract"] || formData.nativeCRS);
+            // TODO decide if it makes sense to update title if there are multiple tasks
+            this.finishUpload();
         }
         // always return unsuccessful - we manually reset the form in callbacks
         return {success: false, records: records};
@@ -493,11 +496,53 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
             url: this._import,
             failure: this.handleFailure,
             success: function(response) {
-                this.waitMsg.hide();
+                if (this.waitMsg) {
+                    this.waitMsg.hide();
+                }
                 this.getForm().reset();
                 var details = Ext.decode(response.responseText);
-                this.fireEvent("uploadcomplete", this, details);
-                delete this._import;
+                if (details.import.state === "COMPLETE") {
+                    var queue = [], counter = 0;
+                    for (var i=0, ii=details.import.tasks.length; i<ii; ++i) {
+                        queue.push(function(done, storage) {
+                            Ext.Ajax.request({
+                                url: details.import.tasks[counter].href,
+                                callback: function(options, success, response) {
+                                    if (!storage.layers) {
+                                        storage.layers = {};
+                                    }
+                                    if (success) {
+                                        if (!Ext.isEmpty(response.responseText)) {
+                                            var json = Ext.decode(response.responseText);
+                                            // TODO handle different ws
+                                            storage.layers[this.defaultWorkspace + ':' + json.task.layer.name] = true;
+                                        }
+                                    }
+                                    done();
+                                },
+                                scope: this
+                            });
+                            counter++;
+                        });
+                    }
+                    gxp.util.dispatch(queue, function(storage) {
+                        this.fireEvent("uploadcomplete", this, storage.layers);
+                        delete this._import;
+                    }, this);
+                } else {
+                    var errors = [];
+                    for (var i=0, ii=details.import.tasks.length; i<ii; ++i) {
+                        var task = details.import.tasks[i];
+                        if (task.state === "NO_FORMAT") {
+                            errors.push({
+                                id: "file",
+                                msg: "Upload contains no suitable files."
+                            });
+                            this.getForm().markInvalid(errors);
+                            break;
+                        }
+                    }
+                }
             },
             scope: this
         });
