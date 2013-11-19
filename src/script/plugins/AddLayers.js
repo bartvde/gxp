@@ -823,7 +823,18 @@ gxp.plugins.AddLayers = Ext.extend(gxp.plugins.Tool, {
                                 msgTarget: "side"
                             },
                             listeners: {
-                                uploadcomplete: function(panel, names) {
+                                uploadcomplete: function(panel, detail) {
+                                    var layers = detail["import"].tasks;
+                                    var item, names = {}, resource, layer;
+                                    for (var i=0, len=layers.length; i<len; ++i) {
+                                        item = layers[i];
+                                        if (item.state === "ERROR") {
+                                            Ext.Msg.alert(item.layer.originalName, item.errorMessage);
+                                            return;
+                                        }
+                                        var ws = item.target.dataStore.workspace.name;
+                                        names[ws + ":" + item.layer.name] = true;
+                                    }
                                     this.selectedSource.store.load({
                                         callback: function(records, options, success) {
                                             var gridPanel, sel;

@@ -170,7 +170,6 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
                             method: "POST",
                             jsonData: jsonData,
                             success: function(response) {
-                                //this._import = response.getResponseHeader("Location");
                                 var json = Ext.decode(response.responseText);
                                 this._import = json.import.href;
                                 this.optionsFieldset.expand();
@@ -186,9 +185,7 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
                         });
                     } else {
                         var formData = this.getForm().getFieldValues();
-                        // TODO check difference between coverage and featureType
                         var item = {};
-                        // TODO check how to update title and abstract
                         item["layer"] = {
                             title: formData.title || undefined,
                             "abstract": formData["abstract"] || undefined,
@@ -493,7 +490,7 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
     handleUploadSuccess: function(response) {
         Ext.Ajax.request({
             method: "GET",
-            url: this._import,
+            url: this._import + '?expand=all',
             failure: this.handleFailure,
             success: function(response) {
                 if (this.waitMsg) {
@@ -502,7 +499,10 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
                 this.getForm().reset();
                 var details = Ext.decode(response.responseText);
                 if (details.import.state === "COMPLETE") {
-                    var queue = [], counter = 0;
+                    this.fireEvent("uploadcomplete", this, details);
+window.console.log(details);
+                    delete this._import;
+                    /*var queue = [], counter = 0;
                     for (var i=0, ii=details.import.tasks.length; i<ii; ++i) {
                         queue.push(function(done, storage) {
                             Ext.Ajax.request({
@@ -528,7 +528,7 @@ gxp.LayerUploadPanel = Ext.extend(Ext.FormPanel, {
                     gxp.util.dispatch(queue, function(storage) {
                         this.fireEvent("uploadcomplete", this, storage.layers);
                         delete this._import;
-                    }, this);
+                    }, this);*/
                 } else {
                     var errors = [];
                     for (var i=0, ii=details.import.tasks.length; i<ii; ++i) {
